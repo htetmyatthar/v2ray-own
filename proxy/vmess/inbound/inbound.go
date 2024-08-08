@@ -244,6 +244,13 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection i
 		return err
 	}
 
+	// check the ip for any duplicated ip with the same uuid.
+	UUID := request.User.Account.(*vmess.MemoryAccount).ID.String()
+	err = logger.MarkUUID(UUID)
+	if err != nil {
+		return newError("client's UUID is already in used: ", err)
+	}
+
 	if h.secure && isInsecureEncryption(request.Security) {
 		log.Record(&log.AccessMessage{
 			From:   connection.RemoteAddr(),
@@ -301,10 +308,6 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection i
 		return nil
 	}
 
-	clientIP := connection.RemoteAddr()
-	clientID := request.User.Account.(*vmess.MemoryAccount).ID.String()
-	logger.LogIP(clientID, clientIP)
-
 	responseDone := func() error {
 		defer timer.SetTimeout(sessionPolicy.Timeouts.UplinkOnly)
 
@@ -321,6 +324,7 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection i
 	if err := task.Run(ctx, requestDonePost, responseDone); err != nil {
 		common.Interrupt(link.Reader)
 		common.Interrupt(link.Writer)
+		logger.UnmarkUUID(UUID)
 		return newError("connection ends").Base(err)
 	}
 
