@@ -248,8 +248,9 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection i
 	UUID := request.User.Account.(*vmess.MemoryAccount).ID.String()
 	err = logger.MarkUUID(UUID)
 	if err != nil {
-		return newError("client's UUID is already in used: ", err)
+		return newError("client's UUID is already in used by ", connection.RemoteAddr().String(), err)
 	}
+	defer logger.UnmarkUUID(UUID)
 
 	if h.secure && isInsecureEncryption(request.Security) {
 		log.Record(&log.AccessMessage{
@@ -324,7 +325,6 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection i
 	if err := task.Run(ctx, requestDonePost, responseDone); err != nil {
 		common.Interrupt(link.Reader)
 		common.Interrupt(link.Writer)
-		logger.UnmarkUUID(UUID)
 		return newError("connection ends").Base(err)
 	}
 
