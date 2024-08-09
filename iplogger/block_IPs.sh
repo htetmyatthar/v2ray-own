@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # File containing the list of IP addresses
-IPS_TO_BAN_FILE="ips_2ban.txt"
-ACTIVE_IPS_FILE="active_ips.log"
-BLOCKED_IPS_FILE="blocked_ips.log"
+IPS_TO_BAN_FILE="/ips_2ban.txt"
+ACTIVE_IPS_FILE="/active_ips.log"
+BLOCKED_IPS_FILE="/blocked_ips.log"
 
 PORT="80"
 V2RAY_PID=$(pgrep v2ray)

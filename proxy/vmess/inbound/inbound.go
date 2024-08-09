@@ -25,7 +25,7 @@ import (
 	feature_inbound "github.com/v2fly/v2ray-core/v5/features/inbound"
 	"github.com/v2fly/v2ray-core/v5/features/policy"
 	"github.com/v2fly/v2ray-core/v5/features/routing"
-	"github.com/v2fly/v2ray-core/v5/iplogger/logger"
+	// "github.com/v2fly/v2ray-core/v5/iplogger/logger"
 	"github.com/v2fly/v2ray-core/v5/proxy/vmess"
 	"github.com/v2fly/v2ray-core/v5/proxy/vmess/encoding"
 	"github.com/v2fly/v2ray-core/v5/transport/internet"
@@ -220,6 +220,9 @@ func isInsecureEncryption(s protocol.SecurityType) bool {
 	return s == protocol.SecurityType_NONE || s == protocol.SecurityType_LEGACY || s == protocol.SecurityType_UNKNOWN
 }
 
+// Define a global map to track active connections by UUID
+var activeConnections = sync.Map{} // Thread-safe map to store UUID and its connection
+
 // Process implements proxy.Inbound.Process().
 func (h *Handler) Process(ctx context.Context, network net.Network, connection internet.Connection, dispatcher routing.Dispatcher) error {
 	sessionPolicy := h.policyManager.ForLevel(0)
@@ -244,14 +247,26 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection i
 		return err
 	}
 
-	// check the ip for any duplicated ip with the same uuid.
+	// Extract the UUID
 	UUID := request.User.Account.(*vmess.MemoryAccount).ID.String()
-	err = logger.MarkUUID(UUID)
-	if err != nil {
-		return newError("client's UUID is already in used by ", connection.RemoteAddr().String(), err)
-	}
-	defer logger.UnmarkUUID(UUID)
 
+	// Check if there's already an active connection for this UUID
+	if _, exists := activeConnections.Load(UUID); exists {
+		// Close the old connection
+		connection.(internet.Connection).Close()
+		return newError("Invalid request from the second device : ", connection.RemoteAddr().String())
+	}
+
+	// Store the new connection in the map
+	// activeConnections.Store(UUID, connection)
+
+	// Ensure the UUID is unmarked and removed from the map upon disconnection
+	defer func() {
+		activeConnections.Delete(UUID)
+		// logger.UnmarkUUID(UUID)
+	}()
+
+	// The rest of the code remains mostly unchanged
 	if h.secure && isInsecureEncryption(request.Security) {
 		log.Record(&log.AccessMessage{
 			From:   connection.RemoteAddr(),
@@ -288,6 +303,7 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection i
 	sessionPolicy = h.policyManager.ForLevel(request.User.Level)
 
 	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	timer := signal.CancelAfterInactivity(ctx, cancel, sessionPolicy.Timeouts.ConnectionIdle)
 
 	ctx = policy.ContextWithBufferPolicy(ctx, sessionPolicy.Buffer)
@@ -322,7 +338,8 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection i
 	}
 
 	requestDonePost := task.OnSuccess(requestDone, task.Close(link.Writer))
-	if err := task.Run(ctx, requestDonePost, responseDone); err != nil {
+	err = task.Run(ctx, requestDonePost, responseDone)
+	if err != nil {
 		common.Interrupt(link.Reader)
 		common.Interrupt(link.Writer)
 		return newError("connection ends").Base(err)
