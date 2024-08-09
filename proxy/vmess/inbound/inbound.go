@@ -251,14 +251,14 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection i
 	UUID := request.User.Account.(*vmess.MemoryAccount).ID.String()
 
 	// Check if there's already an active connection for this UUID
-	if _, exists := activeConnections.Load(UUID); exists {
+	if oldConn, exists := activeConnections.Load(UUID); exists {
 		// Close the old connection
-		connection.(internet.Connection).Close()
+		oldConn.(internet.Connection).Close()
 		return newError("Invalid request from the second device : ", connection.RemoteAddr().String())
 	}
 
 	// Store the new connection in the map
-	// activeConnections.Store(UUID, connection)
+	activeConnections.Store(UUID, connection)
 
 	// Ensure the UUID is unmarked and removed from the map upon disconnection
 	defer func() {
